@@ -4,8 +4,14 @@
 
 package frc.robot;
 
+import javax.naming.spi.StateFactory;
+
+import com.pathplanner.lib.config.ModuleConfig;
+import com.pathplanner.lib.config.RobotConfig;
+
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
+import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.util.Units;
 
@@ -36,12 +42,16 @@ public final class Constants {
     public static final double kTrackWidth = Units.inchesToMeters(26.5);
     // Distance between centers of right and left wheels on robot
     public static final double kWheelBase = Units.inchesToMeters(26.5);
-    // Distance between front and back wheels on robot
-    public static final SwerveDriveKinematics kDriveKinematics = new SwerveDriveKinematics(
-        new Translation2d(kWheelBase / 2, kTrackWidth / 2),
-        new Translation2d(kWheelBase / 2, -kTrackWidth / 2),
-        new Translation2d(-kWheelBase / 2, kTrackWidth / 2),
-        new Translation2d(-kWheelBase / 2, -kTrackWidth / 2));
+   // Distance between centers of right and left wheels on robot
+
+   public static final Translation2d[] moduleTranslations = new Translation2d[] {
+   new Translation2d(kWheelBase / 2, kTrackWidth / 2),
+   new Translation2d(kWheelBase / 2, -kTrackWidth / 2),
+   new Translation2d(-kWheelBase / 2, kTrackWidth / 2),
+   new Translation2d(-kWheelBase / 2, -kTrackWidth / 2)};
+
+// Distance between front and back wheels on robot
+public static final SwerveDriveKinematics kDriveKinematics = new SwerveDriveKinematics(moduleTranslations);
 
     // Angular offsets of the modules relative to the chassis in radians
     public static final double kFrontLeftChassisAngularOffset = -Math.PI / 2;
@@ -61,6 +71,24 @@ public final class Constants {
     public static final int kRearRightTurningCanId = 8;
 
     public static final boolean kGyroReversed = false;
+    // PathPlanner configuration
+  public static final double robotMassKg = 74.088;
+  public static final double robotMOI = 6.883;
+  public static final double wheelCOF = 1.2;
+  public static final double driveMotorCurrentLimit = 50;
+  public static final DCMotor driveGearbox = DCMotor.getNEO(1);
+  public static final RobotConfig ppConfig =
+      new RobotConfig(
+          robotMassKg,
+          robotMOI,
+          new ModuleConfig(
+              ModuleConstants.kWheelDiameterMeters/2,
+              AutoConstants.kMaxSpeedMetersPerSecond,
+              wheelCOF,
+              driveGearbox.withReduction(ModuleConstants.kDrivingMotorReduction),
+              driveMotorCurrentLimit,
+              1),
+          moduleTranslations);
   }
 
   public static final class ModuleConstants {

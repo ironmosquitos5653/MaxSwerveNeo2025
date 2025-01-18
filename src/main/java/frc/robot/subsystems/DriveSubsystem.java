@@ -13,12 +13,18 @@ import edu.wpi.first.math.kinematics.SwerveDriveKinematics;
 import edu.wpi.first.math.kinematics.SwerveDriveOdometry;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
-import edu.wpi.first.math.util.Units;
-import edu.wpi.first.wpilibj.ADIS16470_IMU;
-import edu.wpi.first.wpilibj.ADIS16470_IMU.IMUAxis;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import frc.robot.Constants.DriveConstants;
+import pabeles.concurrency.IntOperatorTask.Max;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import com.pathplanner.lib.auto.AutoBuilder;
+import com.pathplanner.lib.config.PIDConstants;
+import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.pathfinding.Pathfinding;
+import com.pathplanner.lib.util.PathPlannerLogging;
+import static frc.robot.Constants.DriveConstants.*;
 
 public class DriveSubsystem extends SubsystemBase {
   // Create MAXSwerveModules
@@ -42,6 +48,7 @@ public class DriveSubsystem extends SubsystemBase {
       DriveConstants.kRearRightTurningCanId,
       DriveConstants.kBackRightChassisAngularOffset);
 
+      private final MAXSwerveModule[] modules = new MAXSwerveModule[4]; // FL, FR, BL, BR
   // The gyro sensor
   private final Pigeon2 m_gyro = new Pigeon2(20);
 
@@ -57,7 +64,42 @@ public class DriveSubsystem extends SubsystemBase {
       });
 
   /** Creates a new DriveSubsystem. */
-  public DriveSubsystem() {
+  public DriveSubsystem() { 
+    modules[0]=m_frontLeft;
+    modules[1]=m_frontRight;
+    modules[2]=m_rearLeft;
+    modules[3]=m_rearRight;
+    AutoBuilder.configure(
+        this::getPose,
+        this::setPose,
+        () -> DriveConstants.kDriveKinematics.toChassisSpeeds(getModuleStates()),
+        this::runVelocity,
+        new PPHolonomicDriveController(
+            new PIDConstants(5.0, 0.0, 0.0), new PIDConstants(5.0, 0.0, 0.0)),
+        ppConfig,
+        () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
+        this);
+  }
+
+  public void runVelocity(ChassisSpeeds speeds) {
+    // Calculate module setpoints
+    ChassisSpeeds discreteSpeeds = ChassisSpeeds.discretize(speeds, 0.02);
+    SwerveModuleState[] setpointStates = DriveConstants.kDriveKinematics.toSwerveModuleStates(discreteSpeeds);
+    SwerveDriveKinematics.desaturateWheelSpeeds(setpointStates, DriveConstants.kMaxSpeedMetersPerSecond);
+
+    // Send setpoints to modules
+    for (int i = 0; i < 4; i++) {
+      // The module returns the optimized state, useful for logging
+       modules[i].setDesiredState(setpointStates[i]);
+    }
+  }
+
+  private SwerveModuleState[] getModuleStates() {
+    SwerveModuleState[] states = new SwerveModuleState[4];
+    for (int i = 0; i < 4; i++) {
+      states[i] = modules[i].getState();
+    }
+    return states;
   }
 
   @Override
@@ -82,7 +124,8 @@ public class DriveSubsystem extends SubsystemBase {
   public Pose2d getPose() {
     return m_odometry.getPoseMeters();
   }
-
+  public void setPose(Pose2d pose) {
+  }
   /**
    * Resets the odometry to the specified pose.
    *
