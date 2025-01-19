@@ -37,10 +37,11 @@ import com.pathplanner.lib.auto.AutoBuilder;
  * periodic methods (other than the scheduler calls).  Instead, the structure of the robot
  * (including subsystems, commands, and button mappings) should be declared here.
  */
+
 public class RobotContainer {
   // The robot's subsystems
-  private final DriveSubsystem m_robotDrive = new DriveSubsystem();
-  private final PoseEstimatorSubsystem m_PoseEstimatorSubsystem = new PoseEstimatorSubsystem(m_robotDrive);
+  private final PoseEstimatorSubsystem m_PoseEstimatorSubsystem = new PoseEstimatorSubsystem();
+  private final DriveSubsystem m_robotDrive = new DriveSubsystem(m_PoseEstimatorSubsystem);
 
   // The driver's controller
   XboxController m_driverController = new XboxController(OIConstants.kDriverControllerPort);
@@ -48,7 +49,8 @@ public class RobotContainer {
   /**
    * The container for the robot. Contains subsystems, OI devices, and commands.
    */
-  public RobotContainer() {
+  public RobotContainer() {   
+    m_PoseEstimatorSubsystem.init(m_robotDrive);
     // Configure the button bindings
     configureButtonBindings();
     m_PoseEstimatorSubsystem.setDefaultCommand(new RunCommand( () -> {}, m_PoseEstimatorSubsystem));
@@ -134,7 +136,7 @@ public class RobotContainer {
 
   public Command getAutonomousCommand() {
    
-    return null;
+    return sendableChooser.getSelected();
 
   }
 }

@@ -1,11 +1,27 @@
 package frc.robot.subsystems;
 
+import java.util.Optional;
+
+import org.photonvision.EstimatedRobotPose;
+import org.photonvision.PhotonCamera;
+import org.photonvision.PhotonPoseEstimator;
+import org.photonvision.PhotonPoseEstimator.PoseStrategy;
+import org.photonvision.PhotonUtils;
+import org.photonvision.targeting.PhotonPipelineResult;
+import org.photonvision.targeting.PhotonTrackedTarget;
+
+import edu.wpi.first.apriltag.AprilTagFieldLayout;
+import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.Vector;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Rotation3d;
+import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -21,7 +37,7 @@ import frc.robot.vision.LimelightHelpers;
 
 public class PoseEstimatorSubsystem extends SubsystemBase {
 
-  private final DriveSubsystem driveSubsystem;
+  private DriveSubsystem driveSubsystem;
   
   // Kalman Filter Configuration. These can be "tuned-to-taste" based on how much
   // you trust your various sensors. Smaller numbers will cause the filter to
@@ -39,15 +55,28 @@ public class PoseEstimatorSubsystem extends SubsystemBase {
    * Standard deviations of the vision measurements. Increase these numbers to trust global measurements from vision
    * less. This matrix is in the form [x, y, theta]ᵀ, with units in meters and radians.
    */
-  private static final Vector<N3> visionMeasurementStdDevs = VecBuilder.fill(0.5, 0.5, Units.degreesToRadians(10));
+  private static final Vector<N3> visionMeasurementStdDevs = VecBuilder.fill(0.5, 0.5, Units.degreesToRadians(30));
 
-  private final SwerveDrivePoseEstimator poseEstimator;
+  private SwerveDrivePoseEstimator poseEstimator;
+
+Transform3d robotToCam = new Transform3d(new Translation3d(0.5, 0.0, 0.5), new Rotation3d(0,0,0)); //Cam mounted facing forward, half a meter forward of center, half a meter up from center.
+
+// Construct PhotonPoseEstimator
+PhotonPoseEstimator photonPoseEstimator;
+
+  public PhotonCamera camera;
 
   private final Field2d field2d = new Field2d();
+  private static AprilTagFieldLayout aprilTagFieldLayout = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
 
-  public PoseEstimatorSubsystem(DriveSubsystem driveSubsystem) {
+  public PoseEstimatorSubsystem(){}
+  
+  public void init(DriveSubsystem driveSubsystem) {
     this.driveSubsystem = driveSubsystem;
 
+    
+    camera = new PhotonCamera("PhotonCamera"); 
+    photonPoseEstimator  = new PhotonPoseEstimator(aprilTagFieldLayout, PoseStrategy.CLOSEST_TO_REFERENCE_POSE, robotToCam);
 
     ShuffleboardTab tab = Shuffleboard.getTab("Vision");
     
@@ -71,16 +100,18 @@ public class PoseEstimatorSubsystem extends SubsystemBase {
   @Override
   public void periodic() {
 
-    // for(frc.robot.subsystems.vision.Camera.PoseInstance p: Camera.DRIVE_CAMERA.getLatest()) {
-    //     poseEstimator.addVisionMeasurement(p.getPose(), p.getTimestamp());
-    // }
+    if(driveSubsystem == null)
+      return;
 
-    updateVision();
+      
+
 
     // Update pose estimator with driveSubsystem sensors
     poseEstimator.update(
       driveSubsystem.getGyroscopeRotation(),
       driveSubsystem.getModulePositions());
+
+    updateVision();
 
     field2d.setRobotPose(getCurrentPose());
   }
@@ -126,16 +157,72 @@ public class PoseEstimatorSubsystem extends SubsystemBase {
       return DriverStation.getAlliance().get() == Alliance.Blue;
   }
 
+
+  private Pose2d previousPose;
+  public void updatePhotonVision() {
+    if(previousPose != null) {
+      photonPoseEstimator.setReferencePose(previousPose);
+  }
+  for (PhotonPipelineResult result : camera.getAllUnreadResults()) {
+    Optional<EstimatedRobotPose> estimatedPose = photonPoseEstimator.update(result);
+    if(estimatedPose.isPresent()) {
+      previousPose = estimatedPose.get().estimatedPose.toPose2d();
+      PhotonTrackedTarget target = result.getBestTarget();
+      Pose2d pose = PhotonUtils.estimateFieldToRobotAprilTag(target.getBestCameraToTarget(), estimatedPose.get().estimatedPose, robotToCam.inverse()).toPose2d();
+
+      poseEstimator.addVisionMeasurement(pose ,estimatedPose.get().timestampSeconds);
+    }  
+  }
+    
+}
+
+
   public void updateVision() {
+    boolean useMegaTag2 = false; //set to false to use MegaTag1
     boolean doRejectUpdate = false;
-      LimelightHelpers.SetRobotOrientation("limelight-front", poseEstimator.getEstimatedPosition().getRotation().getDegrees(), 0, 0, 0, 0, 0);
-      LimelightHelpers.PoseEstimate mt2 = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2("limelight-front");
+    if(useMegaTag2 == false)
+    {
+      LimelightHelpers.PoseEstimate mt1 = LimelightHelpers.getBotPoseEstimate_wpiBlue("limelight-one");
+      
+      if (mt1 != null ) {
+        if( mt1.tagCount == 1 && mt1.rawFiducials.length == 1)
+        {
+          if(mt1.rawFiducials[0].ambiguity > .7)
+          {
+            doRejectUpdate = true;
+          }
+          if(mt1.rawFiducials[0].distToCamera > 3)
+          {
+            doRejectUpdate = true;
+          }
+        }
+        if(mt1.tagCount == 0)
+        {
+          doRejectUpdate = true;
+        }
+
+        if(!doRejectUpdate)
+        {
+          SmartDashboard.putNumber("Angle", mt1.pose.getRotation().getDegrees());
+          poseEstimator.setVisionMeasurementStdDevs(VecBuilder.fill(.5,.5,9999999));
+          poseEstimator.addVisionMeasurement(
+              mt1.pose,
+              mt1.timestampSeconds);
+
+          SmartDashboard.putString("VisionTag", getFomattedPose(mt1.pose));
+
+        }
+      }
+    }
+    else if (useMegaTag2 == true)
+    {
+      LimelightHelpers.SetRobotOrientation("limelight-one", poseEstimator.getEstimatedPosition().getRotation().getDegrees(), 0, 0, 0, 0, 0);
+      LimelightHelpers.PoseEstimate mt2 = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2("limelight-one");
       if(Math.abs(driveSubsystem.getTurnRate()) > 720) // if our angular velocity is greater than 720 degrees per second, ignore vision updates
       {
         doRejectUpdate = true;
       }
-      SmartDashboard.putString("TAG", Boolean.valueOf(mt2 == null).toString());
-      if(mt2 == null || mt2.tagCount == 0)
+      if(mt2.tagCount == 0)
       {
         doRejectUpdate = true;
       }
@@ -146,5 +233,6 @@ public class PoseEstimatorSubsystem extends SubsystemBase {
             mt2.pose,
             mt2.timestampSeconds);
       }
+    }
   }
 }

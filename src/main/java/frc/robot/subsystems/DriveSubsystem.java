@@ -63,8 +63,11 @@ public class DriveSubsystem extends SubsystemBase {
           m_rearRight.getPosition()
       });
 
+      private final PoseEstimatorSubsystem m_PoseEstimatorSubsystem;
+
   /** Creates a new DriveSubsystem. */
-  public DriveSubsystem() { 
+  public DriveSubsystem(PoseEstimatorSubsystem pes) {
+    m_PoseEstimatorSubsystem=pes; 
     modules[0]=m_frontLeft;
     modules[1]=m_frontRight;
     modules[2]=m_rearLeft;
@@ -122,9 +125,10 @@ public class DriveSubsystem extends SubsystemBase {
    * @return The pose.
    */
   public Pose2d getPose() {
-    return m_odometry.getPoseMeters();
+    return m_PoseEstimatorSubsystem.getCurrentPose();
   }
   public void setPose(Pose2d pose) {
+    m_PoseEstimatorSubsystem.setCurrentPose(pose);
   }
   /**
    * Resets the odometry to the specified pose.
